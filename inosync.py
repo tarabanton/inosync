@@ -6,6 +6,9 @@ from optparse import OptionParser,make_option
 from time import sleep
 from syslog import *
 from pyinotify import *
+from threading import Timer
+import Queue
+import datetime
 
 __author__ = "Benedikt Böhm"
 __copyright__ = "Copyright (c) 2007-2008 Benedikt Böhm <bb@xnull.de>"
@@ -42,6 +45,29 @@ DEFAULT_EVENTS = [
     "IN_MOVED_TO"
 ]
 
+changed_paths = Queue.Queue()
+
+def sync_changes():
+    q_len = changed_paths.qsize()
+    if q_len > 0:
+        syslog(LOG_DEBUG, "We have stuff to sync! Yay :D")
+        syslog(LOG_DEBUG, str(changed_paths))
+        file_list = []
+        for i in range(0, q_len):
+            file_list.append(changed_paths.get())
+
+        print(str(file_list))
+        sync_filepath = "/tmp/inosync_%s" % (datetime.datetime.now().strftime('%H-%M-%s'))
+        with open(sync_filepath, "w") as f:
+            f.write("\n".join(file_list))
+        # os.remove(sycn_filepath)
+    else:
+        syslog(LOG_DEBUG, "Nothing to sync.")
+
+t = Timer(10.0, sync_changes)
+t.daemon = True
+t.start()
+
 class RsyncEvent(ProcessEvent):
   pretend = None
 
@@ -76,8 +102,7 @@ class RsyncEvent(ProcessEvent):
         (event.maskname, os.path.join(event.path, event.name)))
     for wpath in config.wpaths:
       if os.path.realpath(wpath) in os.path.realpath(event.path):
-        self.sync(wpath)
-        break
+        changed_paths.put(os.path.realpath(event.path))
 
 def daemonize():
   try:
@@ -131,7 +156,7 @@ def load_config(filename):
       raise RuntimeError, "one of the watch paths does not exist: %s" % wpath
     if not os.path.isabs(wpath):
       config.wpaths[config.wpaths.index(wpath)] = os.path.abspath(wpath)
-  
+
   for owpath in config.wpaths:
     for wpath in config.wpaths:
       if os.path.realpath(owpath) in os.path.realpath(wpath) and wpath != owpath and len(os.path.split(wpath)) <> len(os.path.split(owpath)):
@@ -142,7 +167,7 @@ def load_config(filename):
     raise RuntimeError, "no paths given for the transfer"
   if len(config.wpaths) != len(config.rpaths):
     raise RuntimeError, "the no. of remote paths must be equal to the number of watched paths"
-  
+
 
 
   if not "rnodes" in dir(config) or len(config.rnodes) < 1:
@@ -203,8 +228,8 @@ def main():
   ev = RsyncEvent(options.pretend)
   notifier = AsyncNotifier(wm, ev, read_freq=config.edelay)
   mask = reduce(lambda x,y: x|y, [EventsCodes.ALL_FLAGS[e] for e in config.emask])
-  wds = wm.add_watch(config.wpaths, mask, rec=True, auto_add=True, 
-	exclude_filter=pyinotify.ExcludeFilter(config.inotify_excludes))
+  wds = wm.add_watch(config.wpaths, mask, rec=True, auto_add=True,
+	exclude_filter=ExcludeFilter(config.inotify_excludes))
   for wpath in config.wpaths:
     syslog(LOG_DEBUG, "starting initial synchronization on %s" % wpath)
     ev.sync(wpath)
