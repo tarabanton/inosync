@@ -4,10 +4,10 @@
 import os
 import sys
 from optparse import OptionParser, make_option
-from time import sleep
 from syslog import *
 from pyinotify import *
-from threading import Timer
+from time import sleep
+import threading
 import Queue
 import datetime
 
@@ -49,56 +49,83 @@ DEFAULT_EVENTS = [
 changed_paths = Queue.Queue()
 
 
-def sync_changes():
-    q_len = changed_paths.qsize()
-    if q_len > 0:
-        syslog(LOG_DEBUG, "We have stuff to sync! Yay :D")
-        syslog(LOG_DEBUG, str(changed_paths))
-        file_list = []
-        for i in range(0, q_len):
-            file_list.append(changed_paths.get())
+def purge(dir):
+    for f in os.listdir(dir):
+        if "inosync_" in f:
+            os.remove(os.path.join(dir, f))
 
-        print(str(file_list))
-        sync_filepath = "/tmp/inosync_%s" % (datetime.datetime.now().strftime('%H-%M-%s'))
-        with open(sync_filepath, "w") as f:
-            f.write("\n".join(file_list))
-        # os.remove(sycn_filepath)
-    else:
-        syslog(LOG_DEBUG, "Nothing to sync.")
 
-t = Timer(10.0, sync_changes)
-t.daemon = True
-t.start()
+def sync_changes(pretend, sleep_time):
+    global config
+
+    while True:
+        # remove old changed files.
+        purge("/tmp/")
+
+        q_len = changed_paths.qsize()
+        wpath_path_map = {}
+        if q_len > 0:
+            syslog(LOG_DEBUG, "There have been changes.")
+            file_list = []
+            for i in range(0, q_len):
+                file_list.append(changed_paths.get())
+
+            # seperate rsync should occur for each wpath.
+            for wpath in config.wpaths:
+                while len(file_list) > 0:
+                    _filepath = file_list.pop()
+                    if wpath in _filepath:
+                        wpath_path_map[wpath] = set()
+                    wpath_path_map[wpath].update([_filepath.replace(wpath, '') + "/"])
+
+            print(wpath_path_map)
+
+            for wpath, paths in wpath_path_map.items():
+                sync_filepath = "/tmp/inosync_%s" % (datetime.datetime.now().strftime('%H-%M-%s'))
+                print(paths)
+                with open(sync_filepath, "w") as f:
+                    f.write("\n".join(paths))
+                r_sync(pretend=pretend, wpath=wpath, from_file=sync_filepath)
+        else:
+            syslog(LOG_DEBUG, "Nothing to sync.")
+
+        sleep(sleep_time)
+
+
+def r_sync(pretend, wpath, from_file=None, delete_from_file=False):
+    args = [config.rsync, "-ltrp", "--delete"]
+    if config.extra:
+        args.append(config.extra)
+    args.append("--bwlimit=%s" % config.rspeed)
+    if config.logfile:
+        args.append("--log-file=%s" % config.logfile)
+    if "rexcludes" in dir(config):
+        for rexclude in config.rexcludes:
+            args.append("--exclude=%s" % rexclude)
+    if from_file is not None:
+        args.append("--files-from=%s" % from_file)
+    args.append(wpath)
+    rpath = config.rpaths[config.wpaths.index(wpath)]
+    args.append("%s")
+    cmd = " ".join(args)
+    for node in config.rnodes:
+        if pretend:
+            syslog("would execute `%s'" % (cmd % (node + rpath)))
+        else:
+            syslog(LOG_DEBUG, "executing %s" % (cmd % (node + rpath)))
+            proc = os.popen(cmd % (node + rpath))
+            for line in proc:
+                syslog(LOG_DEBUG, "[rsync] %s" % line.strip())
 
 
 class RsyncEvent(ProcessEvent):
     pretend = None
 
+    def sync(self, wpath):
+        r_sync(self.pretend, wpath)
+
     def __init__(self, pretend=False):
         self.pretend = pretend
-
-    def sync(self, wpath):
-        args = [config.rsync, "-ltrp", "--delete"]
-        if config.extra:
-            args.append(config.extra)
-        args.append("--bwlimit=%s" % config.rspeed)
-        if config.logfile:
-            args.append("--log-file=%s" % config.logfile)
-        if "rexcludes" in dir(config):
-            for rexclude in config.rexcludes:
-                args.append("--exclude=%s" % rexclude)
-        args.append(wpath)
-        rpath = config.rpaths[config.wpaths.index(wpath)]
-        args.append("%s")
-        cmd = " ".join(args)
-        for node in config.rnodes:
-            if self.pretend:
-                syslog("would execute `%s'" % (cmd % (node + rpath)))
-            else:
-                syslog(LOG_DEBUG, "executing %s" % (cmd % (node + rpath)))
-                proc = os.popen(cmd % (node + rpath))
-                for line in proc:
-                    syslog(LOG_DEBUG, "[rsync] %s" % line.strip())
 
     def process_default(self, event):
         syslog(LOG_DEBUG, "caught %s on %s" %
@@ -155,10 +182,10 @@ def load_config(filename):
     config = __config__
 
     if "wpaths" not in dir(config):
-        raise RuntimeError("no paths given to watch")
+        raise RuntimeError("No paths given to watch")
     for wpath in config.wpaths:
         if not os.path.isdir(wpath):
-            raise RuntimeError("one of the watch paths does not exist: %s" % wpath)
+            raise RuntimeError("One of the watch paths does not exist: %s" % wpath)
         if not os.path.isabs(wpath):
             config.wpaths[config.wpaths.index(wpath)] = os.path.abspath(wpath)
 
@@ -168,12 +195,12 @@ def load_config(filename):
                 raise RuntimeError("You cannot specify %s in wpaths which is a subdirectory of %s since it is already synced." % (wpath, owpath))
 
     if "rpaths" not in dir(config):
-        raise RuntimeError("no paths given for the transfer")
+        raise RuntimeError("No paths given for the transfer")
     if len(config.wpaths) != len(config.rpaths):
-        raise RuntimeError("the no. of remote paths must be equal to the number of watched paths")
+        raise RuntimeError("The no. of remote paths must be equal to the number of watched paths")
 
     if "rnodes" not in dir(config) or len(config.rnodes) < 1:
-        raise RuntimeError("no remote nodes given")
+        raise RuntimeError("No remote nodes given")
 
     if "rspeed" not in dir(config) or config.rspeed < 0:
         config.rspeed = 0
@@ -182,12 +209,12 @@ def load_config(filename):
         config.emask = DEFAULT_EVENTS
     for event in config.emask:
         if event not in EventsCodes.ALL_FLAGS.keys():
-            raise RuntimeError("invalid inotify event: %s" % event)
+            raise RuntimeError("Invalid inotify event: %s" % event)
 
     if "edelay" not in dir(config):
         config.edelay = 10
     if config.edelay < 0:
-        raise RuntimeError("event delay needs to be greater or equal to 0")
+        raise RuntimeError("Event delay needs to be greater or equal to 0")
 
     if "logfile" not in dir(config):
         config.logfile = None
@@ -196,13 +223,27 @@ def load_config(filename):
         config.extra = ""
     if "extra" not in dir(config):
         config.inotify_excludes = []
-
+    if "sleep_time" not in dir(config):
+        config.sleep_time = 10
     if "rsync" not in dir(config):
         config.rsync = "/usr/bin/rsync"
     if not os.path.isabs(config.rsync):
         raise RuntimeError("rsync path needs to be absolute")
     if not os.path.isfile(config.rsync):
         raise RuntimeError("rsync binary does not exist: %s" % config.rsync)
+
+
+class StringExclusionFilter:
+
+    def __init__(self, paths):
+        assert(isinstance(paths, list))
+        self.paths = paths
+
+    def __call__(self, watch_path):
+        for _path in self.paths:
+            if _path in watch_path:
+                return True
+        return False
 
 
 def main():
@@ -231,18 +272,24 @@ def main():
     ev = RsyncEvent(options.pretend)
     AsyncNotifier(wm, ev, read_freq=config.edelay)
     mask = reduce(lambda x, y: x | y, [EventsCodes.ALL_FLAGS[e] for e in config.emask])
+    print("Excluding: %s " % (str(config.inotify_excludes)))
     wm.add_watch(
         config.wpaths,
         mask,
         rec=True,
         auto_add=True,
-        exclude_filter=ExcludeFilter(config.inotify_excludes)
+        exclude_filter=StringExclusionFilter(config.inotify_excludes)
         )
     for wpath in config.wpaths:
         syslog(LOG_DEBUG, "starting initial synchronization on %s" % wpath)
         ev.sync(wpath)
         syslog(LOG_DEBUG, "initial synchronization on %s done" % wpath)
         syslog("resuming normal operations on %s" % wpath)
+
+    write_out_thread = threading.Thread(target=sync_changes, args=(options.pretend, config.sleep_time,))
+    write_out_thread.daemon = True
+    write_out_thread.start()
+
     asyncore.loop()
     sys.exit(0)
 
