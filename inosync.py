@@ -167,6 +167,9 @@ def load_config(filename):
 
   if not "extra" in dir(config):
     config.extra = ""
+  if not "extra" in dir(config):
+    config.inotify_excludes = []
+
   if not "rsync" in dir(config):
     config.rsync = "/usr/bin/rsync"
   if not os.path.isabs(config.rsync):
@@ -200,7 +203,8 @@ def main():
   ev = RsyncEvent(options.pretend)
   notifier = AsyncNotifier(wm, ev, read_freq=config.edelay)
   mask = reduce(lambda x,y: x|y, [EventsCodes.ALL_FLAGS[e] for e in config.emask])
-  wds = wm.add_watch(config.wpaths, mask, rec=True, auto_add=True)
+  wds = wm.add_watch(config.wpaths, mask, rec=True, auto_add=True, 
+	exclude_filter=pyinotify.ExcludeFilter(config.inotify_excludes))
   for wpath in config.wpaths:
     syslog(LOG_DEBUG, "starting initial synchronization on %s" % wpath)
     ev.sync(wpath)
