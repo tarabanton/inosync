@@ -60,7 +60,7 @@ def sync_changes(pretend, sleep_time):
 
     while True:
         # remove old changed files.
-        purge("/tmp/")
+        # purge("/tmp/")
 
         q_len = changed_paths.qsize()
         wpath_path_map = {}
@@ -74,9 +74,13 @@ def sync_changes(pretend, sleep_time):
             for wpath in config.wpaths:
                 while len(file_list) > 0:
                     _filepath = file_list.pop()
-                    if wpath in _filepath:
+                    r_path = wpath if wpath[len(wpath)-1] == "/" else wpath + "/"
+                    if r_path in _filepath:
                         wpath_path_map[wpath] = set()
-                    wpath_path_map[wpath].update([_filepath.replace(wpath, '') + "/"])
+                    _filepath = _filepath.replace(r_path, '')
+                    if len(_filepath) == 0:
+                        _filepath = "./"
+                    wpath_path_map[wpath].update([_filepath])
 
             print(wpath_path_map)
 
@@ -93,7 +97,7 @@ def sync_changes(pretend, sleep_time):
 
 
 def r_sync(pretend, wpath, from_file=None, delete_from_file=False):
-    args = [config.rsync, "-ltrp", "--delete"]
+    args = [config.rsync, "-avz", "--delete"]
     if config.extra:
         args.append(config.extra)
     args.append("--bwlimit=%s" % config.rspeed)
