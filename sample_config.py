@@ -15,6 +15,12 @@ rnodes = [
 	"username2@server2.com:",
 ]
 
+# patterns to exclude listening from
+# inotify_excludes = [
+# 	".glusterfs",
+# 	"LOGS",
+# ]
+
 # extra, raw parameters to rsync
 #extra = "--rsh=ssh -a"
 
@@ -39,3 +45,6 @@ logfile = "/home/username/inosync.log"
 
 # rsync binary path
 #rsync = "/usr/bin/rsync"
+
+# how often you want to create a batched rsync
+sleep_time = 30

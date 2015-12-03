@@ -81,7 +81,7 @@ except ``/var/www/localhost`` to 3 remote locations:
   #]
 
   # event delay in seconds (this prevents huge
-  # amounts of syncs, but dicreases the 
+  # amounts of syncs, but dicreases the
   # realtime side of things)
   #edelay = 10
 
@@ -95,11 +95,6 @@ Bugs
 There are no known bugs currently, however, due to the design of inosync, there
 are several shortcomings:
 
-- inosync cannot parse rsync excludes and therefore calls rsync on changes in
-  excluded directories as well. (`of course rsync still excludes these
-  directories`)
-- It is easily possible to flood the daemon with huge amounts of change events,
-  potentially resulting in enormous bandwidth and connection usage.
 - Excludes currently apply to each path to be synced and there is no way to specify per-path excludes yet.
 
 Requirements

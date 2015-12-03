@@ -50,17 +50,25 @@ changed_paths = Queue.Queue()
 
 
 def purge(dir):
+    """
+    Purge all old inosync temp files.
+    Cool thing is if rsync is still running it can still read the file.
+    """
     for f in os.listdir(dir):
         if "inosync_" in f:
             os.remove(os.path.join(dir, f))
 
 
 def sync_changes(pretend, sleep_time):
+    """
+    Main sync changes threads, that over a given time period processes a batch
+    of changed files.
+    """
     global config
 
     while True:
         # remove old changed files.
-        # purge("/tmp/")
+        purge("/tmp/")
 
         q_len = changed_paths.qsize()
         wpath_path_map = {}
@@ -82,11 +90,11 @@ def sync_changes(pretend, sleep_time):
                         _filepath = "./"
                     wpath_path_map[wpath].update([_filepath])
 
-            print(wpath_path_map)
+            syslog(LOG_DEBUG, wpath_path_map)
 
             for wpath, paths in wpath_path_map.items():
                 sync_filepath = "/tmp/inosync_%s" % (datetime.datetime.now().strftime('%H-%M-%s'))
-                print(paths)
+
                 with open(sync_filepath, "w") as f:
                     f.write("\n".join(paths))
                 r_sync(pretend=pretend, wpath=wpath, from_file=sync_filepath)
