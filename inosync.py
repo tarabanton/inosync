@@ -130,7 +130,7 @@ def r_sync(pretend, wpath, from_file=None, delete_from_file=False):
         uri = uri_parse(node)
         args = [config.rsync, "-avz", "--delete"]
         if uri['scheme'] == 'ssh':
-            args.append('-e "ssh -p {} -T -o Compression=no -x"'.format(uri[2]))
+            args.append('-e "ssh -p {} -T -o Compression=no -x"'.format(uri['port']))
             rpath = config.rpaths[config.wpaths.index(wpath)]
             rhost = (str(uri['username'] + '@' + str(uri['hostname']) + ':' + rpath))
         if config.extra:
