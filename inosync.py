@@ -4,6 +4,7 @@
 import os
 import sys
 from optparse import OptionParser, make_option
+from urlparse import urlparse
 from syslog import *
 from pyinotify import *
 from time import sleep
@@ -82,7 +83,7 @@ def sync_changes(pretend, sleep_time):
             for wpath in config.wpaths:
                 while len(file_list) > 0:
                     _filepath = file_list.pop()
-                    r_path = wpath if wpath[len(wpath)-1] == "/" else wpath + "/"
+                    r_path = wpath if wpath[len(wpath) - 1] == "/" else wpath + "/"
                     if r_path in _filepath:
                         wpath_path_map[wpath] = set()
                     _filepath = _filepath.replace(r_path, '')
@@ -104,28 +105,52 @@ def sync_changes(pretend, sleep_time):
         sleep(sleep_time)
 
 
+def uri_parse(url):
+    """
+    :param uri: str URI in format 'schema://username:password@host:port/path/name'
+    :return dict
+    """
+    uri = {}
+    conn = urlparse(url)
+    uri['port'] = conn.port
+    uri['scheme'] = conn.scheme
+    uri['hostname'] = conn.hostname
+    uri['username'] = conn.username
+    uri['password'] = conn.password
+    uri['path'] = conn.path
+    if conn.scheme == 'ssh':
+        uri['port'] = conn.port if conn.port else 22
+    if conn.scheme == 'ftp':
+        uri['port'] = conn.port if conn.port else 21
+    return uri
+
+
 def r_sync(pretend, wpath, from_file=None, delete_from_file=False):
-    args = [config.rsync, "-avz", "--delete"]
-    if config.extra:
-        args.append(config.extra)
-    args.append("--bwlimit=%s" % config.rspeed)
-    if config.logfile:
-        args.append("--log-file=%s" % config.logfile)
-    if "rexcludes" in dir(config):
-        for rexclude in config.rexcludes:
-            args.append("--exclude=%s" % rexclude)
-    if from_file is not None:
-        args.append("--files-from=%s" % from_file)
-    args.append(wpath)
-    rpath = config.rpaths[config.wpaths.index(wpath)]
-    args.append("%s")
-    cmd = " ".join(args)
     for node in config.rnodes:
+        uri = uri_parse(node)
+        args = [config.rsync, "-avz", "--delete"]
+        if uri['scheme'] == 'ssh':
+            args.append('-e "ssh -p {} -T -o Compression=no -x"'.format(uri[2]))
+            rpath = config.rpaths[config.wpaths.index(wpath)]
+            rhost = (str(uri['username'] + '@' + str(uri['hostname']) + ':' + rpath))
+        if config.extra:
+            args.append(config.extra)
+        args.append("--bwlimit=%s" % config.rspeed)
+        if config.logfile:
+            args.append("--log-file=%s" % config.logfile)
+        if "rexcludes" in dir(config):
+            for rexclude in config.rexcludes:
+                args.append("--exclude=%s" % rexclude)
+        if from_file is not None:
+            args.append("--files-from=%s" % from_file)
+        args.append(wpath)
+        args.append(rhost)
+        cmd = " ".join(args)
         if pretend:
-            syslog("would execute `%s'" % (cmd % (node + rpath)))
+            syslog("would execute `%s'" % (cmd))
         else:
-            syslog(LOG_DEBUG, "executing %s" % (cmd % (node + rpath)))
-            proc = os.popen(cmd % (node + rpath))
+            syslog(LOG_DEBUG, "executing %s" % (cmd))
+            proc = os.popen(cmd)
             for line in proc:
                 syslog(LOG_DEBUG, "[rsync] %s" % line.strip())
 
@@ -153,7 +178,7 @@ def daemonize():
     except OSError, e:
         raise Exception("%s [%d]" % (e.strerror, e.errno))
 
-    if (pid == 0):
+    if pid == 0:
         os.setsid()
         try:
             pid = os.fork()
@@ -187,7 +212,7 @@ def load_config(filename):
         raise RuntimeError("Configuration file must be a importable python file ending in .py")
 
     sys.path.append(configdir)
-    exec("import %s as __config__" % configfile)
+    exec ("import %s as __config__" % configfile)
     sys.path.remove(configdir)
 
     global config
@@ -203,8 +228,11 @@ def load_config(filename):
 
     for owpath in config.wpaths:
         for wpath in config.wpaths:
-            if os.path.realpath(owpath) in os.path.realpath(wpath) and wpath != owpath and len(os.path.split(wpath)) != len(os.path.split(owpath)):
-                raise RuntimeError("You cannot specify %s in wpaths which is a subdirectory of %s since it is already synced." % (wpath, owpath))
+            if os.path.realpath(owpath) in os.path.realpath(wpath) and wpath != owpath and len(
+                    os.path.split(wpath)) != len(os.path.split(owpath)):
+                raise RuntimeError(
+                    "You cannot specify %s in wpaths which is a subdirectory of %s since it is already synced." % (
+                    wpath, owpath))
 
     if "rpaths" not in dir(config):
         raise RuntimeError("No paths given for the transfer")
@@ -216,6 +244,9 @@ def load_config(filename):
 
     if "rspeed" not in dir(config) or config.rspeed < 0:
         config.rspeed = 0
+
+    if "inotify_excludes" not in dir(config):
+        config.inotify_excludes = []
 
     if "emask" not in dir(config):
         config.emask = DEFAULT_EVENTS
@@ -246,9 +277,8 @@ def load_config(filename):
 
 
 class StringExclusionFilter:
-
     def __init__(self, paths):
-        assert(isinstance(paths, list))
+        assert (isinstance(paths, list))
         self.paths = paths
 
     def __call__(self, watch_path):
@@ -291,7 +321,7 @@ def main():
         rec=True,
         auto_add=True,
         exclude_filter=StringExclusionFilter(config.inotify_excludes)
-        )
+    )
     for wpath in config.wpaths:
         syslog(LOG_DEBUG, "starting initial synchronization on %s" % wpath)
         ev.sync(wpath)
@@ -304,6 +334,7 @@ def main():
 
     asyncore.loop()
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

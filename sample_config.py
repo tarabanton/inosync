@@ -11,8 +11,8 @@ rpaths = ["/home/rusername/rpath1", "/home/rusername/rpath2/"]
 
 # remote locations in rsync syntax
 rnodes = [
-	"username@server1.com:",
-	"username2@server2.com:",
+	"ssh://username@server1.com:22",
+	"ssh://username2@server2.com:222",
 ]
 
 # patterns to exclude listening from
@@ -47,4 +47,4 @@ logfile = "/home/username/inosync.log"
 #rsync = "/usr/bin/rsync"
 
 # how often you want to create a batched rsync
-sleep_time = 30
+sleep_time = 60
