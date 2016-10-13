@@ -91,7 +91,7 @@ def sync_changes(pretend, sleep_time):
                         _filepath = "./"
                     wpath_path_map[wpath].update([_filepath])
 
-            syslog(LOG_DEBUG, wpath_path_map)
+            syslog(LOG_DEBUG, str(wpath_path_map))
 
             for wpath, paths in wpath_path_map.items():
                 sync_filepath = "/tmp/inosync_%s" % (datetime.datetime.now().strftime('%H-%M-%s'))
