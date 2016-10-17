@@ -77,7 +77,10 @@ def sync_changes(pretend, sleep_time):
             syslog(LOG_DEBUG, "There have been changes.")
             file_list = []
             for i in range(0, q_len):
-                file_list.append(changed_paths.get())
+                item = changed_paths.get()
+                if item not in file_list:
+                    file_list.append(item)
+            syslog(LOG_DEBUG, str(file_list))
 
             # seperate rsync should occur for each wpath.
             for wpath in config.wpaths:
@@ -107,8 +110,8 @@ def sync_changes(pretend, sleep_time):
 
 def uri_parse(url):
     """
-    :param uri: str URI in format 'schema://username:password@host:port/path/name'
-    :return dict
+    Getting str URI in format 'schema://username:password@host:port/path/name'
+    and returning dict with parsed values
     """
     uri = {}
     conn = urlparse(url)
@@ -169,7 +172,9 @@ class RsyncEvent(ProcessEvent):
                (event.maskname, os.path.join(event.path, event.name)))
         for wpath in config.wpaths:
             if os.path.realpath(wpath) in os.path.realpath(event.path):
-                changed_paths.put(os.path.realpath(event.path))
+                path_str = str(os.path.realpath(event.path)) + os.sep
+                changed_paths.put(path_str)
+                #changed_paths.put(os.path.join(path_str, event.name))
 
 
 def daemonize():
