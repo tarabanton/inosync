@@ -13,5 +13,7 @@ class Supervisor(object):
 
     def start(self):
         while self.Running:
-            sleep(60)
             self.log.info("Running")
+            self.log.debug("Running")
+            sleep(60)
+

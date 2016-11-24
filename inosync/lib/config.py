@@ -39,6 +39,9 @@ class Config(DefaultConfig):
             'inotify_delay': '10',
         })
 
+        config.add_section('inosync')
+        config.set('inosync', 'dry-run', str(False))
+
         config.add_section('log')
         config.set('log', 'file', str(None))
         config.set('log', 'level', 'INFO')
@@ -54,7 +57,7 @@ class Config(DefaultConfig):
             if cfg_file is not None:
                 self.config.read(cfg_file)
 
-        self._apply_log_setting()
+        #self.apply_log_setting()
 
     def fetch(self, sec, key, klass=None, raw=False):
         try:
@@ -70,6 +73,9 @@ class Config(DefaultConfig):
         except KeyError:
             return None
 
+    def deliver(self, sec, key, value):
+        self.config.set(sec, key, value)
+
     def fetch_sections(self, raw=False):
         try:
             return self.config.sections()
@@ -82,7 +88,7 @@ class Config(DefaultConfig):
         except configparser.NoSectionError:
             return None
 
-    def _apply_log_setting(self):
+    def apply_log_setting(self):
         logging.basicConfig(
             format=self.fetch('log', 'format', raw=True),
             filename=self.fetch('log', 'file'),

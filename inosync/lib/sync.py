@@ -9,15 +9,35 @@ from pyinotify import *
 import Queue
 from time import sleep
 
+changed_paths = Queue.Queue()
+
+class RsyncEvent(ProcessEvent):
+
+    def __init__(self, config):
+        self.config = config
+        self.log = logging.getLogger(
+            self.__class__.__name__.upper())
+        self.pretend = config.fetch('inosync', 'dry-run')
+
+    def sync(self, wpath):
+        Sync.sync_do(self.pretend, wpath)
+
+    def process_default(self, event):
+        self.log.debug("Caught {} on {}".format(event.maskname, os.path.join(event.path, event.name)))
+        for wpath in config.wpaths:
+            if os.path.realpath(wpath) in os.path.realpath(event.path):
+                path_str = str(os.path.realpath(event.path)) + os.sep
+                changed_paths.put(path_str)
+                #changed_paths.put(os.path.join(path_str, event.name))
 
 class Sync():
     Interval = 10
-    changed_paths = Queue.Queue()
 
     def __init__(self, config, sync):
         self.config = config
         self.log = logging.getLogger(
             self.__class__.__name__.upper())
+        self.pretend = config.fetch('inosync', 'dry-run')
         self.wpath = self.config(sync, 'source')
         self.target = []
         for k, v in self.config.fetch_items(sync):
@@ -25,7 +45,7 @@ class Sync():
                 self.target.append(v)
         self.config.fetch(sync,'parameters')
 
-    def cleanup(directory):
+    def cleanup(self, directory):
         """
         Purge all old inosync temp files.
         Cool thing is if rsync is still running it can still read the file.
@@ -34,7 +54,7 @@ class Sync():
             if "inosync_" in f:
                 os.remove(os.path.join(directory, f))
 
-    def uri_parse(url):
+    def uri_parse(self, url):
         """
         Getting str URI in format 'schema://username:password@host:port/path/name'
         and returning dict with parsed values
@@ -53,7 +73,7 @@ class Sync():
             uri['port'] = conn.port if conn.port else 21
         return uri
 
-    def sync_prepare(self, pretend=False):
+    def sync_prepare(self, pretend):
         """
         Main sync changes threads, that over a given time period processes a batch
         of changed files.
@@ -72,7 +92,7 @@ class Sync():
                     file_list.append(item)
             self.log.debug(str(file_list))
 
-            # seperate rsync should occur for each wpath.
+            # separate rsync should occur for each wpath.
             for wpath in config.wpaths:
                 while len(file_list) > 0:
                     _filepath = file_list.pop()
@@ -97,7 +117,7 @@ class Sync():
 
     def sync_do(self, wpath, pretend=False, from_file=None, delete_from_file=False):
         for node in config.rnodes:
-            uri = uri_parse(node)
+            uri = self.uri_parse(node)
             args = [config.rsync, "-avz", "--delete"]
             if uri['scheme'] == 'ssh':
                 args.append('-e "ssh -p {} -T -o Compression=no -x"'.format(uri['port']))

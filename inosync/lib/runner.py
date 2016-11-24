@@ -24,13 +24,20 @@ def start():
         tool = commands[0]
         if tool == '-h' or tool == '--help':
             print_total_help()
-        else:
-            print_total_help()
 
     args, commands = parse_args()
     if len(commands) > 0:
         print_total_help()
     cfg = Config(args.config_file)
+
+    # verbose run
+    if args.verbose:
+        cfg.deliver('log', 'level', 'DEBUG')
+
+    cfg.apply_log_setting()
+
+    if args.dry_run:
+        cfg.deliver('inosync', 'dry-run', str(True))
 
     # simple daemon
     if args.daemon:
